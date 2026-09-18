@@ -9,6 +9,9 @@
 <meta name="apple-mobile-web-app-title" content="あんなログ">
 <meta name="theme-color" content="#F37FA8">
 <title>あんなログ</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -791,6 +794,10 @@ function confetti(){
 }
 
 
+/* ---------- PWA: service worker ---------- */
+if('serviceWorker' in navigator && location.protocol==='https:'){
+  window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{});});
+}
 /* ---------- start ---------- */
 function start(){
   load();
