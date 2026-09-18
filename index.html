@@ -186,6 +186,11 @@ nav button.on{color:var(--teal);background:var(--teal-soft)}
 .cell.today{box-shadow:inset 0 0 0 2px var(--teal)}
 .cell .mk{font-size:.8rem}
 .callegend{display:flex;gap:14px;justify-content:center;font-size:.74rem;color:var(--muted);margin-top:10px}
+
+/* share */
+.sub{width:100%;margin-top:10px;background:var(--surface);border:2px solid var(--teal);color:var(--teal)}
+.shareprev{background:var(--surface);border-radius:20px;padding:10px;text-align:center}
+.shareprev img{max-width:100%;max-height:52vh;border-radius:14px;display:inline-block}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -201,6 +206,8 @@ nav button.on{color:var(--teal);background:var(--teal-soft)}
     <input id="sStart" type="number" inputmode="decimal" step="0.1" placeholder="60.0">
     <label for="sGoal">目標体重 (kg)</label>
     <input id="sGoal" type="number" inputmode="decimal" step="0.1" placeholder="55.0">
+    <label for="sGoalDate">目標の期限(任意)</label>
+    <input id="sGoalDate" type="date">
     <p id="sWarn" class="warn"></p>
     <button class="cta" id="sSave">はじめる</button>
     <p class="muted" style="margin-top:14px">データはこの端末の中だけに保存されます。</p>
@@ -224,6 +231,8 @@ nav button.on{color:var(--teal);background:var(--teal-soft)}
     </div>
     <button class="cta" id="openRec">今日の体重を記録する</button>
     <div class="msg" id="homeMsg"></div>
+    <button class="btn sub" id="openShare">🎁 成果を画像にする</button>
+    <div class="infocard" id="dueCard"><span class="em">⏳</span><p id="dueText"></p></div>
     <div class="infocard" id="dailyCard"><span class="em">🌸</span><p id="dailyText"></p></div>
     <div class="infocard" id="paceCard"><span class="em">📈</span><p id="paceText"></p></div>
     <div class="infocard" id="ticketCard"><span class="em">🎟️</span><p id="ticketText"></p></div>
@@ -267,6 +276,8 @@ nav button.on{color:var(--teal);background:var(--teal-soft)}
     <input id="eStart" type="number" inputmode="decimal" step="0.1">
     <label for="eGoal">目標体重 (kg)</label>
     <input id="eGoal" type="number" inputmode="decimal" step="0.1">
+    <label for="eGoalDate">目標の期限(空欄なら期限なし)</label>
+    <input id="eGoalDate" type="date">
     <p id="eWarn" class="warn"></p>
     <div class="row"><button class="btn primary" id="eSave">目標を保存</button></div>
 
@@ -321,6 +332,18 @@ nav button.on{color:var(--teal);background:var(--teal-soft)}
       <button class="btn" id="rCancel">やめる</button>
       <button class="btn primary" id="rSave">記録する</button>
     </div>
+  </div>
+</div>
+
+<!-- share -->
+<div class="overlay" id="shareOverlay">
+  <div class="sheet" role="dialog" aria-label="成果を画像で共有">
+    <h2 style="margin-top:0">成果を画像にする</h2>
+    <div class="shareprev"><img id="shareImg" alt="共有用のまとめ画像"></div>
+    <label class="chk"><input type="checkbox" id="shareHide">体重の数値をかくす(減った量だけ見せる)</label>
+    <div class="row"><button class="btn primary" id="shareSend">送る・共有する</button><button class="btn" id="shareSave">画像を保存</button></div>
+    <div class="row"><button class="btn" id="shareClose">閉じる</button></div>
+    <p class="muted" style="margin-top:12px">保存できないときは、画像を長押しして「写真に保存」を選んでください。</p>
   </div>
 </div>
 
@@ -537,15 +560,26 @@ function show(t){
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>show(b.dataset.t));
 
 /* ---------- setup ---------- */
-function readGoalForm(h,s,g){
+function readGoalForm(h,s,g,gd){
   const H=parseFloat($(h).value),St=parseFloat($(s).value),G=parseFloat($(g).value);
   if(!(H>50&&H<250)){toast('身長を正しく入力してください');return null;}
   if(!(St>20&&St<300)||!(G>20&&G<300)){toast('体重を正しく入力してください');return null;}
-  return {height:r1(H),start:r1(St),goal:r1(G)};
+  return {height:r1(H),start:r1(St),goal:r1(G),goalDate:(gd&&$(gd).value)||''};
+}
+/* ---------- 期限 ---------- */
+const daysBetween=(a,b)=>Math.round((parseD(b)-parseD(a))/86400000);
+function dueInfo(){
+  const p=S.profile,l=latest();
+  if(!p||!p.goalDate||!l) return null;
+  const left=daysBetween(today(),p.goalDate);
+  const rest=r1(l.w-p.goal);
+  const reached=(p.start>=p.goal&&l.w<=p.goal)||(p.start<p.goal&&l.w>=p.goal);
+  const perWeek=left>0?r1(Math.abs(rest)/(left/7)):null;
+  return {left,rest:Math.abs(rest),reached,perWeek};
 }
 ['sHeight','sGoal'].forEach(id=>$(id).addEventListener('input',()=>{$('sWarn').textContent=goalWarn(parseFloat($('sHeight').value),parseFloat($('sGoal').value));}));
 $('sSave').onclick=()=>{
-  const p=readGoalForm('sHeight','sStart','sGoal'); if(!p) return;
+  const p=readGoalForm('sHeight','sStart','sGoal','sGoalDate'); if(!p) return;
   S.profile=Object.assign(p,{startDate:today()});
   if(!S.records[today()]) S.records[today()]={w:p.start,memo:''};
   grantTickets(); checkBadges(); save(); show('home');
@@ -588,7 +622,27 @@ function renderHome(){
   const lost=l?r1(p.start-l.w):0;
   $('convert').innerHTML=lost>0?convertText(lost):'';
   $('dailyText').innerHTML='<b>今日のひとこと</b><small>'+dailyMessage()+'</small>';
-  renderPace(); renderTicket();
+  renderDue(); renderPace(); renderTicket();
+}
+function renderDue(){
+  const d=dueInfo(), card=$('dueCard');
+  if(!d){card.style.display='none';return;}
+  card.style.display='flex';
+  const p=S.profile, gd=p.goalDate.replace(/-/g,'/');
+  let t='';
+  if(d.reached) t='<b>'+gd+'までの目標を達成しています</b><small>期限内に届きました。ここからはキープを楽しみましょう</small>';
+  else if(d.left<0) t='<b>目標日('+gd+')を過ぎました</b><small>期限は設定からいつでも延ばせます。続けた記録はそのまま残ります</small>';
+  else if(d.left===0) t='<b>今日が目標日です</b><small>あと'+fmt(d.rest)+'kg。ここまで続けられたこと自体が結果です</small>';
+  else{
+    const f=paceForecast();
+    let add;
+    if(d.perWeek>1.0) add='1週で'+fmt(d.perWeek)+'kgは体に負担が大きいペースです。期限を延ばすのがおすすめです';
+    else if(f.type==='ok'&&f.date<=p.goalDate) add='いまのペースなら間に合いそうです';
+    else if(f.type==='ok') add='いまのペースだと'+f.date.replace(/-/g,'/')+'ごろ。期限を延ばしても大丈夫です';
+    else add='1週あたり'+fmt(d.perWeek)+'kgのペースで届く計算です';
+    t='<b>'+gd+'まで あと'+d.left+'日(残り'+fmt(d.rest)+'kg)</b><small>'+add+'</small>';
+  }
+  $('dueText').innerHTML=t;
 }
 function renderPace(){
   const f=paceForecast();
@@ -733,11 +787,11 @@ function renderBadges(){
 
 /* ---------- settings ---------- */
 function renderSettings(){
-  const p=S.profile;$('eHeight').value=p.height;$('eStart').value=p.start;$('eGoal').value=p.goal;
+  const p=S.profile;$('eHeight').value=p.height;$('eStart').value=p.start;$('eGoal').value=p.goal;$('eGoalDate').value=p.goalDate||'';
   $('eWarn').textContent=goalWarn(p.height,p.goal);
 }
 ['eHeight','eGoal'].forEach(id=>$(id).addEventListener('input',()=>{$('eWarn').textContent=goalWarn(parseFloat($('eHeight').value),parseFloat($('eGoal').value));}));
-$('eSave').onclick=()=>{const p=readGoalForm('eHeight','eStart','eGoal');if(!p)return;
+$('eSave').onclick=()=>{const p=readGoalForm('eHeight','eStart','eGoal','eGoalDate');if(!p)return;
   S.profile=Object.assign({},S.profile,p);const fresh=checkBadges();save();toast('目標を保存しました');
   if(fresh.length){const b=fresh[fresh.length-1];celebrate(b.ic,b.name+' を獲得!',b.desc);}};
 
@@ -793,6 +847,122 @@ function confetti(){
   })(t0);
 }
 
+
+/* ---------- 成果を画像にする ---------- */
+let shareBlob=null;
+function rrect(x,c,a,b,w,h,r){x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);x.arcTo(a+w,b+h,a,b+h,r);x.arcTo(a,b+h,a,b,r);x.arcTo(a,b,a+w,b,r);x.closePath();x.fillStyle=c;x.fill();}
+function drawBig(x,cx,y,num,unit,F,ns,us){
+  x.font='800 '+ns+'px '+F;const nw=x.measureText(num).width;
+  x.font='700 '+us+'px '+F;const uw=x.measureText(unit).width;
+  const sx=cx-(nw+14+uw)/2;
+  x.textAlign='left';x.fillStyle='#F37FA8';
+  x.font='800 '+ns+'px '+F;x.fillText(num,sx,y);
+  x.font='700 '+us+'px '+F;x.fillText(unit,sx+nw+14,y);
+  x.textAlign='center';
+}
+function drawShare(hide){
+  const W=1080,H=1350,cv=document.createElement('canvas');cv.width=W;cv.height=H;
+  const x=cv.getContext('2d'),p=S.profile,l=latest(),pr=progress();
+  const F='"M PLUS Rounded 1c","Hiragino Maru Gothic ProN",sans-serif';
+  const g=x.createLinearGradient(0,0,W,H);g.addColorStop(0,'#FFE8F1');g.addColorStop(1,'#EDE4FD');
+  x.fillStyle=g;x.fillRect(0,0,W,H);
+  x.fillStyle='rgba(255,255,255,.5)';
+  for(let i=0;i<40;i++){x.beginPath();x.arc((i*137)%W,(i*211)%H,6+(i%3)*3,0,7);x.fill();}
+  rrect(x,'#fff',60,60,W-120,H-120,52);
+  const cx=W/2;
+  x.textAlign='center';x.fillStyle='#F37FA8';x.font='700 44px '+F;x.fillText('♡ あんなログ ♡',cx,160);
+  x.fillStyle='#A07F90';x.font='400 30px '+F;x.fillText(today().replace(/-/g,'/')+' のきろく',cx,208);
+  const lost=l?r1(p.start-l.w):0;
+  if(hide){
+    drawBig(x,cx,360,(lost>0?'−':lost<0?'+':'±')+fmt(Math.abs(lost)),'kg',F,146,56);
+    x.fillStyle='#A07F90';x.font='400 32px '+F;x.fillText('スタートからの変化',cx,414);
+  }else{
+    drawBig(x,cx,355,l?fmt(l.w):'--','kg',F,140,52);
+    x.fillStyle=lost>0?'#F37FA8':'#A07F90';x.font='700 38px '+F;
+    x.fillText('スタートから '+(lost>0?'−':lost<0?'+':'±')+fmt(Math.abs(lost))+'kg',cx,414);
+  }
+  // progress bar
+  const bx=140,bw=W-280,by=470;
+  rrect(x,'#FDE2EC',bx,by,bw,28,14);
+  const pg=x.createLinearGradient(bx,0,bx+bw,0);pg.addColorStop(0,'#F37FA8');pg.addColorStop(1,'#B89AF2');
+  if(pr.pct>0){rrect(x,'#F37FA8',bx,by,Math.max(28,bw*pr.pct/100),28,14);x.fillStyle=pg;x.fill();}
+  x.fillStyle='#5B3A4B';x.font='700 34px '+F;x.fillText('目標まで '+Math.floor(pr.pct)+'% 達成',cx,by+80);
+  // hearts
+  const hn=10,hs=Math.round(pr.pct/10);
+  x.font='40px '+F;
+  for(let i=0;i<hn;i++){x.fillStyle=i<hs?'#F37FA8':'#F6D3DF';x.fillText('♥',cx-(hn-1)*26+i*52,by+140);}
+  // chart
+  const cy0=740,ch=250,cw=W-280;
+  rrect(x,'#FFF6FA',bx,cy0,cw,ch,28);
+  const ds=sortedDates().slice(-30);
+  if(ds.length>1){
+    const ws=ds.map(d=>S.records[d].w);
+    let mn=Math.min.apply(null,ws.concat([p.goal])),mx=Math.max.apply(null,ws.concat([p.goal]));
+    const pad=Math.max(.5,(mx-mn)*.15);mn-=pad;mx+=pad;
+    const X=i=>bx+30+i*(cw-60)/(ds.length-1), Y=v=>cy0+26+(mx-v)/(mx-mn)*(ch-60);
+    x.strokeStyle='#E0567D';x.lineWidth=3;x.setLineDash([10,8]);
+    x.beginPath();x.moveTo(bx+20,Y(p.goal));x.lineTo(bx+cw-20,Y(p.goal));x.stroke();x.setLineDash([]);
+    x.strokeStyle='#F37FA8';x.lineWidth=7;x.lineJoin='round';x.beginPath();
+    ds.forEach((d,i)=>{const px=X(i),py=Y(ws[i]);i?x.lineTo(px,py):x.moveTo(px,py);});x.stroke();
+    x.fillStyle='#F37FA8';ds.forEach((d,i)=>{x.beginPath();x.arc(X(i),Y(ws[i]),7,0,7);x.fill();});
+    x.fillStyle='#A07F90';x.font='400 26px '+F;x.textAlign='left';
+    x.fillText(ds[0].slice(5).replace('-','/'),bx+24,cy0+ch-14);
+    x.textAlign='right';x.fillText(ds[ds.length-1].slice(5).replace('-','/'),bx+cw-24,cy0+ch-14);
+    x.textAlign='center';
+  }else{
+    x.fillStyle='#A07F90';x.font='400 32px '+F;x.fillText('記録がたまるとグラフが出ます',cx,cy0+ch/2+10);
+  }
+  // stats
+  const sy=1030,cols=[['連続記録',streak()+'日'],['記録した日',sortedDates().length+'日'],['バッジ',BADGES.filter(b=>S.badges[b.id]).length+'個']];
+  cols.forEach((c,i)=>{
+    const px=bx+(cw/3)*(i+.5);
+    rrect(x,i===0?'#F0E8FE':'#FDE2EC',px-cw/6+12,sy,cw/3-24,140,34);
+    x.fillStyle=i===0?'#B89AF2':'#F37FA8';x.font='800 54px '+F;x.fillText(c[1],px,sy+72);
+    x.fillStyle='#A07F90';x.font='400 27px '+F;x.fillText(c[0],px,sy+114);
+  });
+  // conversion / deadline
+  let line1=lost>0?convertText(lost).replace(/<[^>]+>/g,'').replace('減った'+fmt(lost)+'kgは ',''):'';
+  const du=dueInfo();
+  let line2=du?(du.reached?'目標日までに達成しました':du.left>=0?p.goalDate.replace(/-/g,'/')+'まで あと'+du.left+'日':''):'';
+  x.fillStyle='#5B3A4B';x.font='700 33px '+F;
+  if(line1)x.fillText(line1+' 減りました',cx,1225);
+  x.fillStyle='#A07F90';x.font='400 29px '+F;
+  if(line2)x.fillText(line2,cx,1268);
+  return cv;
+}
+function openShare(){
+  if(!S.profile||!latest()){toast('記録をしてから使えます');return;}
+  $('shareOverlay').classList.add('show');
+  buildShare();
+}
+function buildShare(){
+  const draw=()=>{
+    const cv=drawShare($('shareHide').checked);
+    cv.toBlob(b=>{shareBlob=b;if(b)$('shareImg').src=URL.createObjectURL(b);},'image/png');
+  };
+  if(document.fonts&&document.fonts.ready) document.fonts.ready.then(draw); else draw();
+}
+$('openShare').onclick=openShare;
+$('shareHide').onchange=buildShare;
+$('shareClose').onclick=()=>$('shareOverlay').classList.remove('show');
+$('shareOverlay').onclick=e=>{if(e.target.id==='shareOverlay')$('shareOverlay').classList.remove('show');};
+$('shareSend').onclick=async()=>{
+  if(!shareBlob){toast('画像を準備中です');return;}
+  const file=new File([shareBlob],'annalog_'+today()+'.png',{type:'image/png'});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+    try{await navigator.share({files:[file],title:'あんなログ'});}catch(e){}
+  }else{
+    toast('この端末では共有に対応していません。画像を保存して送ってください');
+  }
+};
+$('shareSave').onclick=()=>{
+  if(!shareBlob){toast('画像を準備中です');return;}
+  try{
+    const a=document.createElement('a');a.href=URL.createObjectURL(shareBlob);a.download='annalog_'+today()+'.png';
+    document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
+    toast('画像を保存しました');
+  }catch(e){toast('画像を長押しして保存してください');}
+};
 
 /* ---------- PWA: service worker ---------- */
 if('serviceWorker' in navigator && location.protocol==='https:'){
